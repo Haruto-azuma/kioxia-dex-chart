@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>キオクシアのDEX価格（円換算）</title>
+<style>
+html,body{margin:0;padding:0;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;}
+#izc-kx{border:1px solid #e3e6ea;border-radius:10px;padding:16px 14px 12px;margin:0;background:#ffffff;box-sizing:border-box;}
+#izc-kx p{margin:0;}
+</style>
+</head>
+<body>
+<div id="izc-kx">
+<p style="margin:0 0 4px;font-size:14px;font-weight:bold;color:#33414d;">キオクシアのDEX価格（円換算・自動更新）</p>
+<p id="izc-kx-now" style="font-size:32px;font-weight:bold;line-height:1.3;color:#0a0a0a;">読み込み中…</p>
+<p id="izc-kx-diff" style="margin:2px 0 0;font-size:15px;font-weight:bold;color:#54636f;">&nbsp;</p>
+<p id="izc-kx-sub" style="margin:2px 0 8px;font-size:13px;color:#54636f;">&nbsp;</p>
+<div id="izc-kx-chart" style="width:100%;min-height:120px;"></div>
+<p style="margin:8px 0 0;font-size:12px;line-height:1.6;color:#8d9aa8;">Hyperliquid（trade.xyz）のxyz:KIOXIAの価格に、同じ市場のドル円（xyz:JPY）を掛けた円換算値です。直近3日間を15分足で表示し、約60秒ごとに更新します。点線は直近の平日15時30分（東証の大引け時刻）の水準です。東証の株価そのものではありません。</p>
+</div>
+<script>
+(function(){
+  var W = window, D = document;
+  var API = "https://api.hyperliquid.xyz/info";
+  var NS = "http://www.w3.org/2000/svg";
+  var Q = 900000, J9 = 32400000, DAY = 86400000;
+  var S = [];
+  var elNow = D.getElementById("izc-kx-now");
+  var elDiff = D.getElementById("izc-kx-diff");
+  var elSub = D.getElementById("izc-kx-sub");
+  var elChart = D.getElementById("izc-kx-chart");
+  function post(body){
+    return fetch(API, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)}).then(function(r){ return r.json(); });
+  }
+  function candles(coin, st){
+    return post({type:"candleSnapshot", req:{coin:coin, interval:"15m", startTime:st, endTime:Date.now()}});
+  }
+  function refTime(){
+    var now = Date.now();
+    var j = new Date(now + J9);
+    var d = Date.UTC(j.getUTCFullYear(), j.getUTCMonth(), j.getUTCDate(), 15, 30) - J9;
+    var out = 0;
+    for (var k = 9; k >= 0; k--) {
+      var t = d - k * DAY;
+      var w = new Date(t + J9).getUTCDay();
+      out = now >= t ? (w % 6 !== 0 ? t : out) : out;
+    }
+    return out;
+  }
+  function build(K, J){
+    var jm = {};
+    var last = 0;
+    var out = [];
+    J.forEach(function(c){ jm[c.t] = parseFloat(c.c); });
+    K.forEach(function(c){
+      last = jm[c.t] ? jm[c.t] : last;
+      return last ? out.push({t:c.t, usd:parseFloat(c.c), fx:last, y:parseFloat(c.c) * last}) : 0;
+    });
+    return out;
+  }
+  function merge(add){
+    var m = {};
+    var from = Date.now() - 3 * DAY;
+    S.concat(add).forEach(function(p){ m[p.t] = p; });
+    S = Object.keys(m).map(Number).sort(function(a, b){ return a - b; }).filter(function(t){ return t >= from; }).map(function(t){ return m[t]; });
+  }
+  function yen(v){ return Math.round(v).toLocaleString("ja-JP"); }
+  function two(n){ return (10 > n ? "0" : "") + n; }
+  function el(name, attrs, text){
+    var e = D.createElementNS(NS, name);
+    Object.keys(attrs).forEach(function(k){ e.setAttribute(k, attrs[k]); });
+    e.textContent = text ? text : "";
+    return e;
+  }
+  function draw(){
+    var tRef = refTime();
+    var refs = S.filter(function(q){ return tRef >= q.t + Q; });
+    var ref = refs.length ? refs[refs.length - 1] : null;
+    var p = S[S.length - 1];
+    var base = ref ? ref.y : p.y;
+    var ch = p.y - base;
+    var pc = (p.y / base - 1) * 100;
+    var sg = ch >= 0 ? "+" : "-";
+    elNow.textContent = yen(p.y) + "円";
+    elSub.textContent = "ドル建て " + p.usd.toFixed(2) + "ドル × ドル円 " + p.fx.toFixed(2) + "円";
+    elDiff.textContent = ref ? "平日15時30分の水準から " + sg + Math.abs(pc).toFixed(2) + "%（" + sg + yen(Math.abs(ch)) + "円）" : "";
+    elDiff.style.color = ch >= 0 ? "#1a8a4a" : "#e44141";
+    var Wd = 640, H = 250, L = 58, Rr = 12, T = 12, B = 26;
+    var ys = S.map(function(q){ return q.y; }).concat([base]);
+    var lo = Math.min.apply(null, ys);
+    var hi = Math.max.apply(null, ys);
+    var padY = hi > lo ? (hi - lo) * 0.08 : 1;
+    lo = lo - padY;
+    hi = hi + padY;
+    var t0 = S[0].t;
+    var t1 = p.t;
+    var span = t1 > t0 ? t1 - t0 : 1;
+    function X(t){ return L + (Wd - L - Rr) * (t - t0) / span; }
+    function Y(v){ return T + (H - T - B) * (1 - (v - lo) / (hi - lo)); }
+    var svg = el("svg", {viewBox:"0 0 " + Wd + " " + H, role:"img", "aria-label":"キオクシアのDEX価格（円換算）の直近3日間の推移", style:"display:block;width:100%;height:auto;"});
+    svg.appendChild(el("rect", {x:0, y:0, width:Wd, height:H, fill:"#ffffff"}));
+    [0.08, 0.5, 0.92].forEach(function(f){
+      var v = lo + (hi - lo) * f;
+      svg.appendChild(el("line", {x1:L, y1:Y(v), x2:Wd - Rr, y2:Y(v), stroke:"#eef1f4", "stroke-width":1}));
+      svg.appendChild(el("text", {x:L - 6, y:Y(v) + 4, "text-anchor":"end", "font-size":12, fill:"#8d9aa8", "font-family":"sans-serif"}, yen(v)));
+    });
+    var d0 = new Date(t0 + J9);
+    var mid = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), d0.getUTCDate()) - J9;
+    [1, 2, 3, 4].map(function(i){ return mid + i * DAY; }).filter(function(tm){ return tm > t0 ? t1 - 32400000 > tm : false; }).forEach(function(tm){
+      var dd = new Date(tm + J9);
+      svg.appendChild(el("line", {x1:X(tm), y1:T, x2:X(tm), y2:H - B, stroke:"#eef1f4", "stroke-width":1}));
+      svg.appendChild(el("text", {x:X(tm), y:H - 8, "text-anchor":"middle", "font-size":12, fill:"#8d9aa8", "font-family":"sans-serif"}, (dd.getUTCMonth() + 1) + "/" + dd.getUTCDate()));
+    });
+    svg.appendChild(el("line", {x1:L, y1:Y(base), x2:Wd - Rr, y2:Y(base), stroke:"#8d9aa8", "stroke-width":1.5, "stroke-dasharray":"5 4"}));
+    svg.appendChild(el("polyline", {points:S.map(function(q){ return X(q.t).toFixed(1) + "," + Y(q.y).toFixed(1); }).join(" "), fill:"none", stroke:"#1f6fb2", "stroke-width":2, "stroke-linejoin":"round"}));
+    svg.appendChild(el("circle", {cx:X(p.t), cy:Y(p.y), r:4, fill:"#1f6fb2"}));
+    var nd = new Date(Math.min(p.t + Q, Date.now()) + J9);
+    svg.appendChild(el("text", {x:Wd - Rr, y:H - 8, "text-anchor":"end", "font-size":12, fill:"#54636f", "font-family":"sans-serif"}, (nd.getUTCMonth() + 1) + "/" + nd.getUTCDate() + " " + two(nd.getUTCHours()) + ":" + two(nd.getUTCMinutes())));
+    elChart.textContent = "";
+    elChart.appendChild(svg);
+  }
+  function load(st){
+    return Promise.all([candles("xyz:KIOXIA", st), candles("xyz:JPY", st)]).then(function(a){
+      merge(build(a[0], a[1]));
+      return S.length > 1 ? draw() : 0;
+    });
+  }
+  function fail(){
+    elNow.textContent = S.length ? elNow.textContent : "価格を取得できませんでした";
+  }
+  function start(){
+    W.__izcKx = 1;
+    load(Date.now() - 3 * DAY - 3600000).catch(fail);
+    setInterval(function(){ return D.hidden ? 0 : load(Date.now() - 7200000).catch(fail); }, 60000);
+  }
+  return elNow ? (W.__izcKx ? 0 : start()) : 0;
+})();
+</script>
+</body>
+</html>
